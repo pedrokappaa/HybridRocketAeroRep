@@ -40,6 +40,7 @@
 // BMI160 imu parameters
 #define BMI_I2C_ADDR 0x69
 #define GYRO_SENS 65.6
+#define GYRO_THRESH 0.05
 #define ACC_SENS 2048.0
 #define ACC_THRESH 0.05
 
@@ -235,15 +236,29 @@ void loop()
       // parameter accelGyro is the pointer to store the data
       if(!bmi160.getAccelGyroData(accelGyro, timestamp))
       {
+        // calibrate bias error
         for (int i = 0; i < 3; i++)
         {
           gyro[i] = accelGyro[i]/GYRO_SENS - offset[i];
           acc[i] = accelGyro[i+3]/ACC_SENS - offset[i+3];
         } 
 
+        // reduce mean error
+        if (acc[0] <= ACC_THRESH && acc[0] >= -ACC_THRESH)
+          acc[0] = 0.0;
         if (acc[1] <= ACC_THRESH && acc[1] >= -ACC_THRESH)
           acc[1] = 0.0;
+        if (acc[2] <= ACC_THRESH && acc[2] >= -ACC_THRESH)
+          acc[2] = 0.0;
+        if (gyro[0] <= GYRO_THRESH && gyro[0] >= -GYRO_THRESH)
+          gyro[0] = 0.0;
+        if (gyro[1] <= GYRO_THRESH && gyro[1] >= -GYRO_THRESH)
+          gyro[1] = 0.0;
+        if (gyro[2] <= GYRO_THRESH && gyro[2] >= -GYRO_THRESH)
+          gyro[2] = 0.0;
+        
 
+        // low-pass filter on acc + gyro measurements
         gx_e = (1-ALPHA)*(-gyro[0]) + ALPHA*gx_e;
         gy_e = (1-ALPHA)*(-gyro[1]) + ALPHA*gy_e;
         gz_e = (1-ALPHA)*(-gyro[2]) + ALPHA*gz_e;
@@ -251,20 +266,14 @@ void loop()
         ay_e = (1-ALPHA)*(-acc[1]) + ALPHA*ay_e;
         az_e = (1-ALPHA)*(-acc[2]) + ALPHA*az_e;
 
-        if(gx_e < 0.01 && gx_e > -0.01)
-          gx_e = 0;
-        if(gz_e < 0.01 && gz_e > -0.01)
-          gz_e = 0;
-
+        // update rotation
         pitch += dt * gx_e;
         yaw += dt * gz_e;
 
+        // update vertical motion
         ay = ax_e * sin(yaw * PI / 180) * cos(pitch * PI / 180) 
            + ay_e * cos(yaw * PI / 180) * cos(pitch * PI / 180) 
            + az_e * sin(pitch * PI / 180);
-
-        if(ay < 0.01 && ay > -0.01)
-          ay = 0;
 
         vy += dt * ay * G;
         py += vy * dt + 0.5 * pow(dt, 2) * ay * G;
@@ -312,43 +321,8 @@ void loop()
         }
         else counter = 0;
 
-        //theta = atan(a_z/(sqrt(pow(a_x, 2)+pow(a_y, 2))))*180/PI;
-        //psi = atan(a_x/(sqrt(pow(a_z, 2)+pow(a_y, 2))))*180/PI;
-          
         // write data in sd card
-        //sdcard_writeFile(millis(), accelGyro[0]*3.14/180.0, accelGyro[1]*3.14/180.0, accelGyro[2]*3.14/180.0,   // gyro
-        //                           accelGyro[3]/16384.0, accelGyro[4]/16384.0, accelGyro[5]/16384.0);           // acc
-        //ESP_LOGI(TAG, "%lu, %f, %f, %f, %f, %f, %f", millis(), accelGyro[0]*3.14/180.0, accelGyro[1]*3.14/180.0, accelGyro[2]*3.14/180.0,   // gyro
-        //                                                       accelGyro[3]/16384.0, accelGyro[4]/16384.0, accelGyro[5]/16384.0);
-
         sdcard_writeFile(millis(), yaw, pitch, ay, vy, py);
-        
-        /*
-        Serial.print(gx_e);
-        Serial.print(",");
-        Serial.print(gy_e);
-        Serial.print(",");
-        Serial.print(gz_e);
-        Serial.print(",");
-        
-        Serial.print(ax_e);
-        Serial.print(",");
-        Serial.print(ay_e);
-        Serial.print(",");
-        Serial.print(az_e);
-        Serial.print(",");
-        
-        Serial.print(yaw);
-        Serial.print(",");
-        Serial.print(pitch);
-        Serial.print(",");
-
-        Serial.print(ay);
-        Serial.print(",");
-        Serial.print(vy);
-        Serial.print(",");
-        Serial.println(py);
-        */
       }
 
       last_timestep = timestep;
